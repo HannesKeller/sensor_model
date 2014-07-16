@@ -1,6 +1,5 @@
-function verifySensorModel(params)
-datasets = {'move_70_1', 'move_70_2'};
-nDatasets = 2;
+function verifySensorModel(datasets, params)
+nDatasets = size(datasets, 2);
 
 % *********************************************************************** %
 % PARAMETERS ************************************************************ %
@@ -110,7 +109,5 @@ for k = 1:(nDatasets/2)
     coefError = nominalModelCoefs{k} - meanModelCoefs{k}
     relativeCoefError = coefError./meanModelCoefs{k}
 end
-
-
 
 end
