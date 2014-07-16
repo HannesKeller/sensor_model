@@ -1,8 +1,6 @@
-% Computes sensor model parameters for given datasets.
-% datasets has to be a cell array of strings (dataset names)
-function finalParameters = computeSensorModel(datasets)
-% Array for end result: [m_2, m_3, q_1, q_2, q_3]
-finalParameters = zeros(5, 1);
+function verifySensorModel(params)
+datasets = {'move_70_1', 'move_70_2'};
+nDatasets = 2;
 
 % *********************************************************************** %
 % PARAMETERS ************************************************************ %
@@ -19,8 +17,6 @@ d_crit = 190;                               % 'Critical' distance to center
 % PREPARATION *********************************************************** %
 % *********************************************************************** %
 
-nDatasets = size(datasets, 2);
-
 % Prepare main data cell arrays
 means = cell(nDatasets, 1);
 variances = cell(nDatasets, 1);
@@ -33,14 +29,11 @@ for i = 1:nDatasets
     variances{i} = disparityVariance;
 end
 
-% *********************************************************************** %
-% STEP 1: IMAGE CENTER FUNCTION (PARAMS m2, q2) ************************* %
-% *********************************************************************** %
-
 % Loop through each pair of datasets
 imageCenters = zeros(1, nDatasets/2);
+nominalImageCenters = zeros(1, nDatasets/2);
 meanDisparities = zeros(1, nDatasets/2);
-p1 = zeros(1, nDatasets);
+p1 = zeros(nDatasets, 1);
 for i = 1:(nDatasets/2)
     % Compute horizontal image center
     columnMean1 = sum(variances{2*i-1}, 1)/480;
@@ -56,22 +49,23 @@ for i = 1:(nDatasets/2)
     indices_x = (imageCenters(i)-50):1:(imageCenters(i)+50);
     m1 = mean(mean(means{2*i-1}(indices_y, indices_x)));
     m2 = mean(mean(means{2*i}(indices_y, indices_x)));
+    meanDisparities(i) = (m1 + m2)/2;  
+    nominalImageCenters(i) = params(3)*meanDisparities(i) + params(4);
     
     p1(2*i-1) = mean(mean(variances{2*i-1}(indices_y, indices_x)));
     p1(2*i) = mean(mean(variances{2*i}(indices_y, indices_x)));
     
-    meanDisparities(i) = (m1 + m2)/2;
+    disp('Image center offset (absolute error):');
+    modelOffset = imageCenters(i) - nominalImageCenters(i)
+    disp('Image center offset (relative error):');
+    relativeModelOffset = modelOffset/imageCenters(i)
+    disp('Offset from the ideal model:');
+    idealModelOffset = imageCenters(i) - 0.5*meanDisparities(i) - 376
+    disp('Offset from the ideal model (relative):');
+    relativeIdealModelOffset = idealModelOffset/imageCenters(i)
 end
 
-finalParameters(1) = mean(p1);
-
-coefs = polyfit(meanDisparities, imageCenters, 1);
-finalParameters(3) = coefs(1);
-finalParameters(4) = coefs(2);
-
-% *********************************************************************** %
-% STEP 2: DISTANCE TO CENTER FUNCTION (PARAMS m3, q3, q1) *************** %
-% *********************************************************************** %
+newp1 = mean(p1);
 
 % Helper matrices for fast calculation
 I = zeros(480, 752);
@@ -83,11 +77,11 @@ for i = 1:480
 end
 
 distancesToCenter = cell(nDatasets, 1);
-%modelCoefs = zeros(nDatasets, 1);
 modelCoefs = cell(nDatasets, 1);
+
 for k = 1:nDatasets
     % Compute distance to center for each pixel    
-    distancesToCenter{k} = sqrt((center_y - I).^2 + (finalParameters(3)*means{k} + finalParameters(4) - J).^2);
+    distancesToCenter{k} = sqrt((center_y - I).^2 + (params(3)*means{k} + params(4) - J).^2);
     
     % Create ring-shaped sets and extract variance peaks
     variancePoints = zeros(1, nSets);
@@ -99,34 +93,24 @@ for k = 1:nDatasets
     
     x_peaks = (dstep/2):dstep:(nSets*dstep);
     ind = x_peaks < d_crit;
-    %modelCoefs(k) = mean((variancePoints(ind)-finalParameters(1))./x_peaks(ind));
     modelCoefs{k} = polyfit(x_peaks(ind), variancePoints(ind), 1);
-%     f = @(x) modelCoefs(k)*x + finalParameters(1);
-%     figure();
-%     hold on;
-%     plot(distancesToCenter{k}(:), variances{k}(:), '.');
-%     plot(x_peaks, variancePoints, 'g-');
-%     plot(x_peaks, f(x_peaks), 'r-');
-%     axis([0 300 0 0.5]);
-    
+    modelCoefs{k}(2) = p1(k);
 end
 
-%save('modelCoefs.mat', 'modelCoefs');
+%save('modelCoefs_v.mat', 'modelCoefs');
 
-meanDisparities_2 = zeros(nDatasets, 1);
-for i = 1:(nDatasets/2)
-   meanDisparities_2(2*i-1) = meanDisparities(i);
-   meanDisparities_2(2*i) = meanDisparities(i);
+nominalModelCoefs = cell(nDatasets/2, 1);
+meanModelCoefs = cell(nDatasets/2, 1);
+for k = 1:(nDatasets/2)
+    nominalModelCoefs{k} = [params(5)*meanDisparities(k) + params(2), params(1)];   
+    meanModelCoefs{k} = (modelCoefs{2*k-1} + modelCoefs{2*k})./2;
+    nominalModelCoefs{k}
+    meanModelCoefs{k}
+    fprintf('Difference to model of (p5*d + p2, p1) for dataset %i:\n', k);
+    coefError = nominalModelCoefs{k} - meanModelCoefs{k}
+    relativeCoefError = coefError./meanModelCoefs{k}
 end
 
-coefs = zeros(nDatasets, 1);
-for i = 1:nDatasets
-   coefs(i) = modelCoefs{i}(1);
-end
 
-coef = polyfit(meanDisparities_2, coefs, 1);
-
-finalParameters(5) = coef(1);
-finalParameters(2) = coef(2);
 
 end
